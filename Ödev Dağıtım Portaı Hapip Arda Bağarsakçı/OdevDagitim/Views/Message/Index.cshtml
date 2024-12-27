@@ -1,0 +1,211 @@
+@using Models
+@using System.Security.Claims
+@model List<AppUser>
+@{
+    ViewData["Title"] = "Mesajlarım";
+    Layout = "~/Views/Shared/_adminLayout.cshtml";
+}
+
+<div class="container-fluid">
+    <div class="row">
+        <!-- Mesajlaşılan kişiler listesi -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Mesajlar</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        @foreach (var user in Model)
+                        {
+                            <a href="#" class="list-group-item list-group-item-action" 
+                               onclick="loadUserMessages('@user.Id', '@user.UserName')">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="mb-0">@user.UserName</h6>
+                                        <small class="text-muted">@user.Email</small>
+                                    </div>
+                                    <span class="badge bg-primary rounded-pill message-count-@user.Id">0</span>
+                                </div>
+                            </a>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mesajlaşma alanı -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0" id="chatTitle">Mesajlaşma</h5>
+                </div>
+                <div class="card-body">
+                    <div id="messageContainer" style="height: 400px; overflow-y: auto;">
+                        <!-- Mesajlar buraya gelecek -->
+                    </div>
+                    <div class="chat-input mt-3">
+                        <div class="input-group">
+                            <input type="text" id="messageInput" class="form-control" placeholder="Mesajınızı yazın...">
+                            <button class="btn btn-primary" type="button" id="sendButton">
+                                <i class="fas fa-paper-plane"></i> Gönder
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/lib/microsoft/signalr/dist/browser/signalr.js"></script>
+    <script>
+        var currentUserId = '@User.FindFirst(ClaimTypes.NameIdentifier)?.Value';
+        var currentReceiverId = '';
+        var connection = new signalR.HubConnectionBuilder()
+            .withUrl("/chatHub")
+            .build();
+
+        // Kullanıcı listesini güncelleme fonksiyonu
+        function updateUserList() {
+            $.get('/Message/GetUserChats', function(users) {
+                var userList = $('.list-group');
+                var currentlySelectedUserId = currentReceiverId; // Mevcut seçili kullanıcıyı kaydet
+                
+                userList.empty();
+                users.forEach(function(user) {
+                    var isActive = user.id === currentlySelectedUserId ? 'active' : '';
+                    var userHtml = `
+                        <a href="#" class="list-group-item list-group-item-action ${isActive}" 
+                           onclick="loadUserMessages('${user.id}', '${user.userName}')">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-0">${user.userName}</h6>
+                                    <small class="text-muted">${user.email}</small>
+                                </div>
+                                <span class="badge bg-primary rounded-pill message-count-${user.id}">0</span>
+                            </div>
+                        </a>`;
+                    userList.append(userHtml);
+                });
+
+                // Okunmamış mesaj sayılarını güncelle
+                users.forEach(function(user) {
+                    updateUnreadCount(user.id);
+                });
+
+                // Animasyon ekle
+                $('.list-group-item').addClass('animate__animated animate__fadeIn');
+            });
+        }
+
+        function loadUserMessages(userId, userName) {
+            currentReceiverId = userId;
+            $('#chatTitle').text(userName + ' ile Mesajlaşma');
+            
+            $.get('/Message/GetMessages?userId=' + userId, function(messages) {
+                var container = $("#messageContainer");
+                container.empty();
+                messages.forEach(function(message) {
+                    appendMessage(message.senderId === currentUserId, message.content, message.messageDate);
+                });
+                container.scrollTop(container[0].scrollHeight);
+                
+                // Okunmamış mesajları okundu olarak işaretle
+                $.post('/Message/MarkAsRead', { userId: userId });
+                $(`.message-count-${userId}`).text('0');
+            });
+        }
+
+        function appendMessage(isCurrentUser, message, time) {
+            var messageHtml = `
+                <div class="message ${isCurrentUser ? 'text-right' : ''}">
+                    <div class="message-content ${isCurrentUser ? 'bg-primary text-white' : 'bg-light'}" 
+                         style="display: inline-block; padding: 8px 15px; border-radius: 15px; margin: 5px 0;">
+                        <p class="mb-0">${message}</p>
+                        <small class="${isCurrentUser ? 'text-white-50' : 'text-muted'}">
+                            ${new Date(time).toLocaleTimeString()}
+                        </small>
+                    </div>
+                </div>`;
+            $("#messageContainer").append(messageHtml);
+        }
+
+        $("#sendButton").click(function () {
+            var message = $("#messageInput").val();
+            if (message.trim() !== "" && currentReceiverId) {
+                connection.invoke("SendMessage", currentReceiverId, message)
+                    .then(function() {
+                        appendMessage(true, message, new Date());
+                        $("#messageInput").val("");
+                        
+                        $.ajax({
+                            url: '/Message/SaveMessage',
+                            type: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({
+                                receiverId: currentReceiverId,
+                                content: message
+                            })
+                        });
+                    })
+                    .catch(function (err) {
+                        console.error(err);
+                        toastr.error('Mesaj gönderilemedi!');
+                    });
+            }
+        });
+
+        $("#messageInput").keypress(function (e) {
+            if (e.which == 13) {
+                $("#sendButton").click();
+            }
+        });
+
+        // Yeni mesaj geldiğinde
+        connection.on("ReceiveMessage", function (senderId, message) {
+            console.log("Yeni mesaj alındı:", senderId, message);
+            
+            // Eğer mesaj gönderen kişiyle konuşuyorsak
+            if (senderId === currentReceiverId) {
+                appendMessage(false, message, new Date());
+                $("#messageContainer").scrollTop($("#messageContainer")[0].scrollHeight);
+            } else {
+                // Bildirim göster ve mesaj listesini güncelle
+                toastr.info('Yeni bir mesajınız var!', '', {
+                    onHidden: function() {
+                        // Bildirim kapandıktan sonra listeyi güncelle
+                        updateUserList();
+                    }
+                });
+                
+                // Anlık olarak listeyi güncelle
+                updateUserList();
+            }
+            
+            // Okunmamış mesaj sayısını güncelle
+            updateUnreadCount(senderId);
+        });
+
+        function updateUnreadCount(senderId) {
+            $.get('/Message/GetUnreadCount?userId=' + senderId, function(count) {
+                $(`.message-count-${senderId}`).text(count);
+            });
+        }
+
+        // Sayfa yüklendiğinde ve her 30 saniyede bir kullanıcı listesini güncelle
+        $(document).ready(function() {
+            updateUserList();
+            setInterval(updateUserList, 30000);
+        });
+
+        connection.start()
+            .then(function() {
+                console.log("SignalR bağlantısı kuruldu.");
+            })
+            .catch(function(err) {
+                console.error("SignalR bağlantı hatası:", err);
+            });
+    </script>
+} 

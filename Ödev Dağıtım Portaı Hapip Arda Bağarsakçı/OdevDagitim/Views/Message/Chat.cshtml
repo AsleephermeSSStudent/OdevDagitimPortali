@@ -1,0 +1,92 @@
+@model List<Message>
+@{
+    ViewData["Title"] = "Sohbet - " + ViewBag.OtherUserName;
+}
+
+<div class="container-fluid">
+    <div class="card shadow">
+        <div class="card-header py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary">@ViewBag.OtherUserName ile Sohbet</h6>
+            <a href="@Url.Action("Index")" class="btn btn-secondary btn-sm">
+                <i class="fas fa-arrow-left"></i> Geri Dön
+            </a>
+        </div>
+        <div class="card-body">
+            <div class="chat-messages" id="messageContainer" style="height: 400px; overflow-y: auto;">
+                @foreach (var message in Model)
+                {
+                    var isCurrentUser = message.SenderId == ViewBag.CurrentUserId;
+                    <div class="message @(isCurrentUser ? "text-right" : "")">
+                        <div class="message-content @(isCurrentUser ? "bg-primary text-white" : "bg-light")" 
+                             style="display: inline-block; padding: 8px 15px; border-radius: 15px; margin: 5px 0;">
+                            <p class="mb-0">@message.Content</p>
+                            <small class="@(isCurrentUser ? "text-white-50" : "text-muted")">
+                                @message.MessageDate.ToString("HH:mm")
+                            </small>
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="chat-input mt-3">
+                <div class="input-group">
+                    <input type="text" id="messageInput" class="form-control" placeholder="Mesajınızı yazın...">
+                    <div class="input-group-append">
+                        <button class="btn btn-primary" type="button" id="sendButton">
+                            <i class="fas fa-paper-plane"></i> Gönder
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/lib/microsoft/signalr/dist/browser/signalr.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.min.js"></script>
+    <script>
+        var connection = new signalR.HubConnectionBuilder()
+            .withUrl("/chatHub")
+            .build();
+
+        var currentUserId = '@ViewBag.CurrentUserId';
+        var receiverId = '@ViewBag.OtherUserId';
+
+        connection.on("ReceiveMessage", function (senderId, message) {
+            var isCurrentUser = senderId === currentUserId;
+            var messageHtml = `
+                <div class="message ${isCurrentUser ? 'text-right' : ''}">
+                    <div class="message-content ${isCurrentUser ? 'bg-primary text-white' : 'bg-light'}" 
+                         style="display: inline-block; padding: 8px 15px; border-radius: 15px; margin: 5px 0;">
+                        <p class="mb-0">${message}</p>
+                        <small class="${isCurrentUser ? 'text-white-50' : 'text-muted'}">
+                            ${new Date().toLocaleTimeString()}
+                        </small>
+                    </div>
+                </div>`;
+            $("#messageContainer").append(messageHtml);
+            $("#messageContainer").scrollTop($("#messageContainer")[0].scrollHeight);
+        });
+
+        $("#sendButton").click(function () {
+            var message = $("#messageInput").val();
+            if (message.trim() !== "") {
+                connection.invoke("SendMessage", receiverId, message)
+                    .catch(function (err) {
+                        console.error(err);
+                    });
+                $("#messageInput").val("");
+            }
+        });
+
+        $("#messageInput").keypress(function (e) {
+            if (e.which == 13) {
+                $("#sendButton").click();
+            }
+        });
+
+        connection.start().catch(function (err) {
+            console.error(err);
+        });
+    </script>
+} 

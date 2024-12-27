@@ -1,0 +1,4 @@
+server=localhost
+database=yemek
+uid=root
+password=159357Wasd

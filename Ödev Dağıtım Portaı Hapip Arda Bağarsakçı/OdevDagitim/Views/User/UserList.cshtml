@@ -1,0 +1,181 @@
+@model List<UserListViewModel>
+@{
+    ViewData["Title"] = "Kullanıcı Listesi";
+    Layout = "~/Views/Shared/_adminLayout.cshtml";
+}
+
+<div class="container-fluid">
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">Kullanıcı Listesi</h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Kullanıcı Adı</th>
+                            <th>E-posta</th>
+                            <th>Rol</th>
+                            <th>Sınıf</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in Model)
+                        {
+                            <tr>
+                                <td>@user.UserName</td>
+                                <td>@user.Email</td>
+                                <td>
+                                    <span class="badge badge-primary">@user.Role</span>
+                                </td>
+                                <td>@(user.ClassName ?? "Atanmamış")</td>
+                                <td>
+                                    <button class="btn btn-primary btn-sm" onclick="showEditModal('@user.Id')">
+                                        <i class="fas fa-edit"></i> Düzenle
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Kullanıcı Düzenle</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="editForm">
+                    <input type="hidden" id="userId" />
+                    
+                    <div class="form-group">
+                        <label>Kullanıcı Adı</label>
+                        <input type="text" class="form-control" id="userName" readonly />
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>E-posta</label>
+                        <input type="email" class="form-control" id="userEmail" readonly />
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Rol</label>
+                        <select class="form-control" id="userRole">
+                            <option value="">-- Rol Seçin --</option>
+                            <option value="admin">Admin</option>
+                            <option value="Teacher">Öğretmen</option>
+                            <option value="Ogrenci">Öğrenci</option>
+                        </select>
+                        <small class="form-text text-muted">
+                            Öğretmen ise sınıf seçmenize gerek yok! Öğrenci ise sınıf seçiniz
+                        </small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Sınıf</label>
+                        <select class="form-control" id="userClass">
+                            <option value="">Sınıf Seçiniz</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" onclick="saveUser()">Kaydet</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            loadClasses();
+        });
+
+        function loadClasses() {
+            $.get('/Class/GetClasses', function(data) {
+                var select = $('#userClass');
+                select.empty();
+                select.append('<option value="">Sınıf Seçiniz</option>');
+                data.forEach(function(item) {
+                    select.append(`<option value="${item.id}">${item.className}</option>`);
+                });
+            });
+        }
+
+        function showEditModal(userId) {
+            $.get('/User/GetUserDetails/' + userId, function(response) {
+                if (response.success) {
+                    $('#userId').val(response.id);
+                    $('#userName').val(response.userName);
+                    $('#userEmail').val(response.email);
+                    $('#userRole').val(response.role || '');
+                    $('#userClass').val(response.classId);
+                    
+                    toggleClassField(response.role);
+                    
+                    $('#editModal').modal('show');
+                } else {
+                    toastr.error(response.message || 'Kullanıcı bilgileri alınamadı.');
+                }
+            });
+        }
+
+        $('#userRole').change(function() {
+            toggleClassField($(this).val());
+        });
+
+        function toggleClassField(role) {
+            var classGroup = $('#userClass').closest('.form-group');
+            if (role === 'Ogrenci') {
+                classGroup.show();
+            } else {
+                classGroup.hide();
+                $('#userClass').val('');
+            }
+        }
+
+        function saveUser() {
+            var data = {
+                id: $('#userId').val(),
+                userName: $('#userName').val(),
+                email: $('#userEmail').val(),
+                role: $('#userRole').val(),
+                classId: $('#userClass').val() || null
+            };
+
+            $.ajax({
+                url: '/User/EditUser',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(data),
+                success: function(response) {
+                    if (response.success) {
+                        $('#editModal').modal('hide');
+                        toastr.success('Kullanıcı başarıyla güncellendi.');
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 1000);
+                    } else {
+                        toastr.error(response.message || 'Güncelleme sırasında bir hata oluştu.');
+                    }
+                },
+                error: function() {
+                    toastr.error('Bir hata oluştu!');
+                }
+            });
+        }
+    </script>
+} 

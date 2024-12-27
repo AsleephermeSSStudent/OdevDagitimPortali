@@ -1,0 +1,224 @@
+﻿@using OdevDagitim.ViewModel
+@using System.Security.Claims
+@model List<StudentAssignmentViewModel>
+@{
+    ViewData["Title"] = "Ödevlerim";
+}
+
+<div class="container">
+    <h2 class="mb-4">Ödevlerim</h2>
+
+    @if (!Model.Any())
+    {
+        <div class="alert alert-info">
+            Henüz size atanmış bir ödev bulunmamaktadır.
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            @foreach (var assignment in Model)
+            {
+                <div class="col-md-6 mb-4">
+                    <div class="card h-100 @(assignment.IsLate && !assignment.IsSubmitted ? "border-danger" : "")">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">@assignment.Title</h5>
+                            @if (assignment.IsSubmitted)
+                            {
+                                <span class="badge bg-success">Teslim Edildi</span>
+                            }
+                            else if (assignment.IsLate)
+                            {
+                                <span class="badge bg-danger">Süresi Doldu</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning">Bekliyor</span>
+                            }
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">@assignment.Description</p>
+                            <p class="card-text">
+                                <small class="text-muted">
+                                    <i class="fas fa-user"></i> @assignment.TeacherName
+                                </small>
+                            </p>
+                            <p class="card-text">
+                                <small class="text-muted">
+                                    <i class="fas fa-clock"></i> Son Teslim: @assignment.DueDate.ToString("dd/MM/yyyy HH:mm")
+                                </small>
+                            </p>
+                            @if (assignment.IsSubmitted)
+                            {
+                                <p class="card-text">
+                                    <small class="text-success">
+                                        <i class="fas fa-check"></i> Teslim Tarihi: @assignment.SubmissionDate?.ToString("dd/MM/yyyy HH:mm")
+                                    </small>
+                                </p>
+                            }
+                        </div>
+                        <div class="card-footer">
+                            <a href="@Url.Action("Submit", "Assignment", new { id = assignment.Id })" class="btn btn-primary">
+                                <i class="fas fa-upload"></i> Ödevi Yükle
+                            </a>
+                            <a href="@Url.Action("Details", "Assignment", new { id = assignment.Id })" class="btn btn-info">
+                                <i class="fas fa-eye"></i> Detaylar
+                            </a>
+                            <button class="btn btn-success" onclick="showChatModal('@assignment.TeacherId', '@assignment.TeacherName')">
+                                <i class="fas fa-comments"></i> Öğretmen ile Mesajlaş
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Chat Modal -->
+<div class="modal fade" id="chatModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Öğretmen ile Mesajlaş</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="chat-messages" id="messageContainer" style="height: 400px; overflow-y: auto;">
+                    <!-- Mesajlar buraya gelecek -->
+                </div>
+                <div class="chat-input mt-3">
+                    <div class="input-group">
+                        <input type="text" id="messageInput" class="form-control" placeholder="Mesajınızı yazın...">
+                        <div class="input-group-append">
+                            <button class="btn btn-primary" type="button" id="sendButton">
+                                <i class="fas fa-paper-plane"></i> Gönder
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/lib/microsoft/signalr/dist/browser/signalr.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.min.js"></script>
+    <script>
+        var currentUserId = '@User.FindFirst(ClaimTypes.NameIdentifier)?.Value';
+        var connection = new signalR.HubConnectionBuilder()
+            .withUrl("/chatHub")
+            .build();
+
+        var currentReceiverId = '';
+
+        window.showChatModal = function(teacherId, teacherName) {
+            console.log("Modal açılıyor...", teacherId, teacherName);
+            currentReceiverId = teacherId;
+            $('.modal-title').text(teacherName + ' ile Mesajlaş');
+            
+            var myModal = new bootstrap.Modal(document.getElementById('chatModal'));
+            myModal.show();
+            
+            loadMessages(teacherId);
+        }
+
+        function loadMessages(teacherId) {
+            $.get('/Message/GetMessages?userId=' + teacherId, function(messages) {
+                var container = $("#messageContainer");
+                container.empty();
+                messages.forEach(function(message) {
+                    appendMessage(message.senderId === currentUserId, message.content, message.messageDate);
+                });
+                container.scrollTop(container[0].scrollHeight);
+                
+                // Mesajları okundu olarak işaretle
+                $.post('/Message/MarkAsRead', { userId: teacherId });
+            });
+        }
+
+        function appendMessage(isCurrentUser, message, time) {
+            var messageHtml = `
+                <div class="message ${isCurrentUser ? 'text-right' : ''}">
+                    <div class="message-content ${isCurrentUser ? 'bg-primary text-white' : 'bg-light'}" 
+                         style="display: inline-block; padding: 8px 15px; border-radius: 15px; margin: 5px 0;">
+                        <p class="mb-0">${message}</p>
+                        <small class="${isCurrentUser ? 'text-white-50' : 'text-muted'}">
+                            ${new Date(time).toLocaleTimeString()}
+                        </small>
+                    </div>
+                </div>`;
+            $("#messageContainer").append(messageHtml);
+        }
+
+        $("#sendButton").click(function () {
+            var message = $("#messageInput").val();
+            if (message.trim() !== "" && currentReceiverId) {
+                console.log("Mesaj gönderiliyor...", {
+                    receiverId: currentReceiverId,
+                    message: message
+                });
+
+                connection.invoke("SendMessage", currentReceiverId, message)
+                    .then(function() {
+                        appendMessage(true, message, new Date());
+                        $("#messageInput").val("");
+                        
+                        $.ajax({
+                            url: '/Message/SaveMessage',
+                            type: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({
+                                receiverId: currentReceiverId,
+                                content: message
+                            }),
+                            success: function(response) {
+                                console.log('Mesaj kaydedildi');
+                            },
+                            error: function(err) {
+                                console.error('Mesaj kaydedilemedi:', err);
+                            }
+                        });
+                    })
+                    .catch(function (err) {
+                        console.error(err);
+                        toastr.error('Mesaj gönderilemedi!');
+                    });
+            }
+        });
+
+        $("#messageInput").keypress(function (e) {
+            if (e.which == 13) {
+                $("#sendButton").click();
+            }
+        });
+
+        connection.on("ReceiveMessage", function (senderId, message) {
+            console.log("Yeni mesaj alındı:", senderId, message);
+            
+            if ($('#chatModal').is(':visible') && senderId === currentReceiverId) {
+                appendMessage(false, message, new Date());
+                $("#messageContainer").scrollTop($("#messageContainer")[0].scrollHeight);
+            } else {
+                toastr.info('Yeni bir mesajınız var!');
+            }
+        });
+
+        function startMessagePolling() {
+            if (currentReceiverId && $('#chatModal').is(':visible')) {
+                loadMessages(currentReceiverId);
+            }
+        }
+        
+        setInterval(startMessagePolling, 10000);
+
+        connection.start()
+            .then(function() {
+                console.log("SignalR bağlantısı kuruldu.");
+            })
+            .catch(function(err) {
+                console.error("SignalR bağlantı hatası:", err);
+            });
+    </script>
+}
